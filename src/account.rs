@@ -56,6 +56,19 @@ impl AccountState {
         }
     }
 
+    /// Few things to add:
+    /// 1. There are more than one ways to think about chargebacks. These are the assumptions we're making:
+    ///     a) More than one transaction can have a chargeback. Think of more than one transaction being
+    ///         disputed and then reversed. That will be a double chargeback. We consider them all by
+    ///         marking that in the deposit state.
+    ///     b) We could have also used `chargebacks` as a vector of deposit IDs and identified the lock status
+    ///         of an account based on the count. We just maintain a counter and mark the individual deposits
+    ///         instead. There is little difference between the two, so I went with my first instinct.
+    ///
+    /// 2. Several style guides will argue against the early return pattern. Google's style-guide is one that
+    ///     says that early returns are good. Like all interesting problems -- I'd say, it depends. I'm using
+    ///     early returns here because the code is likely not going to get too big and this appears to be
+    ///     well readable.
     pub fn transact(&mut self, transaction: Transaction) {
         match transaction {
             Transaction::Deposit { tx, amount, .. } => {

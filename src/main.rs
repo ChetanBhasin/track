@@ -35,12 +35,14 @@ struct Output {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
-    let filepath = &args[1];
+    let filepath = &args[1]; // Only works with the specific API requirements mentioned in the problem statement
     let file = File::open(filepath.as_str())?;
     let reader = BufReader::new(file);
 
     let mut rdr = csv::Reader::from_reader(reader);
-    let mut system = ShardedAccountSystem::new(3);
+    // We're hard coding the number of shards because the problem statement API defines
+    // a very strict API and does not mention any other inputs (such as shards).
+    let mut system = ShardedAccountSystem::new(2);
     let mut wtr = csv::Writer::from_writer(io::stdout());
 
     for result in rdr.deserialize() {
@@ -49,6 +51,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     system.write(&mut wtr)?;
-    let _ = wtr.flush()?;
     Ok(())
 }

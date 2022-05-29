@@ -76,6 +76,9 @@ impl TryInto<Transaction> for Input {
                 client: self.client,
                 tx: self.tx,
             }),
+            // Based on our handling, this will stop the program. However, IMHO, it should stop because
+            // this probably means something terrible has happened and continuing process is unlikely
+            // to yield correct state in the end.
             _ => bail!("Following input could not be parsed: {:?}", self),
         }
     }
