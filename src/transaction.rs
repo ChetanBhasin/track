@@ -76,7 +76,7 @@ impl TryInto<Transaction> for Input {
                 client: self.client,
                 tx: self.tx,
             }),
-            _ => bail!("Following input could not be parsed: {:?}", self)
+            _ => bail!("Following input could not be parsed: {:?}", self),
         }
     }
 }
