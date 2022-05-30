@@ -89,7 +89,6 @@ impl AccountState {
             Transaction::Dispute { tx, .. } => {
                 if let Some(tx) = self.deposits.get_mut(&tx) {
                     tx.dispute = true;
-                    self.total -= tx.amount;
                     self.held += tx.amount;
                 }
             }
@@ -109,5 +108,232 @@ impl AccountState {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    /// Test that basic deposit and withdraw works
+    fn deposit_withdraw_test() {
+        let mut state = AccountState::new();
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 0,
+            amount: Decimal::from(100),
+        });
+        // Deposit was successful
+        assert_eq!(state.available(), Decimal::from(100));
+        state.transact(Transaction::Withdrawal {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(50),
+        });
+        // Withdraw successful
+        assert_eq!(state.available(), Decimal::from(50));
+    }
+
+    #[test]
+    /// Fail withdrawal when not enough funds are available
+    fn fail_withdraw_no_funds() {
+        let mut state = AccountState::new();
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 0,
+            amount: Decimal::from(100),
+        });
+        // Deposit was successful
+        assert_eq!(state.available(), Decimal::from(100));
+        state.transact(Transaction::Withdrawal {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(150),
+        });
+        // Withdraw failure
+        assert_eq!(state.available(), Decimal::from(100));
+    }
+
+    #[test]
+    /// A broken transaction should not brake the state management
+    fn success_successive_no_transactions_after_failure() {
+        let mut state = AccountState::new();
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 0,
+            amount: Decimal::from(100),
+        });
+        // Deposit was successful
+        assert_eq!(state.available(), Decimal::from(100));
+        state.transact(Transaction::Withdrawal {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(150),
+        });
+        // Withdraw failure
+        assert_eq!(state.available(), Decimal::from(100));
+        state.transact(Transaction::Withdrawal {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(50),
+        });
+        // Withdraw success
+        assert_eq!(state.available(), Decimal::from(50));
+    }
+
+    #[test]
+    /// Basic dispute management
+    fn manage_disputes() {
+        let mut state = AccountState::new();
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 0,
+            amount: Decimal::from(100),
+        });
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(100),
+        });
+        state.transact(Transaction::Dispute { client: 0, tx: 1 });
+        assert_eq!(state.available(), Decimal::from(100));
+    }
+
+    #[test]
+    /// If a transaction doesn't exist, ignore disputes
+    fn no_dispute_bad_tx() {
+        let mut state = AccountState::new();
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 0,
+            amount: Decimal::from(100),
+        });
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(100),
+        });
+        state.transact(Transaction::Dispute { client: 0, tx: 3 });
+        assert_eq!(state.available(), Decimal::from(200));
+    }
+
+    #[test]
+    /// More than one dispute is possible
+    fn manage_multiple_disputes() {
+        let mut state = AccountState::new();
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 0,
+            amount: Decimal::from(100),
+        });
+        // Deposit was successful
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(100),
+        });
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 2,
+            amount: Decimal::from(200),
+        });
+        state.transact(Transaction::Dispute { client: 0, tx: 0 });
+        state.transact(Transaction::Dispute { client: 0, tx: 1 });
+        assert_eq!(state.available(), Decimal::from(200));
+    }
+
+    #[test]
+    /// If a transaction is not disputed, chargeback should fail
+    fn no_dispute_no_chargeback() {
+        let mut state = AccountState::new();
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 0,
+            amount: Decimal::from(100),
+        });
+        // Deposit was successful
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(100),
+        });
+        state.transact(Transaction::Chargeback { client: 0, tx: 1 });
+        assert!(!state.locked());
+    }
+
+    #[test]
+    /// Account should be locked if a chargeback happens
+    fn chargeback() {
+        let mut state = AccountState::new();
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 0,
+            amount: Decimal::from(100),
+        });
+        // Deposit was successful
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(100),
+        });
+        state.transact(Transaction::Dispute { client: 0, tx: 1 });
+        state.transact(Transaction::Chargeback { client: 0, tx: 1 });
+        assert!(state.locked());
+    }
+
+    #[test]
+    /// Deposits should be possible, but withdrawal not, after a chargeback
+    fn no_further_withdraw_after_chargeback() {
+        let mut state = AccountState::new();
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 0,
+            amount: Decimal::from(100),
+        });
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(100),
+        });
+        state.transact(Transaction::Dispute { client: 0, tx: 1 });
+        state.transact(Transaction::Chargeback { client: 0, tx: 1 });
+        assert!(state.locked());
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 2,
+            amount: Decimal::from(100),
+        });
+        // I'm assuming that funds still show up as available even if withdrawal fails
+        assert_eq!(state.available(), Decimal::from(100));
+        state.transact(Transaction::Withdrawal {
+            client: 0,
+            tx: 2,
+            amount: Decimal::from(100),
+        });
+        assert_eq!(state.available(), Decimal::from(100));
+    }
+
+    #[test]
+    /// A chargeback doesn't mean that further disputes aren't possible
+    fn disputes_possible_after_chargeback() {
+        let mut state = AccountState::new();
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 0,
+            amount: Decimal::from(100),
+        });
+        // Deposit was successful
+        state.transact(Transaction::Deposit {
+            client: 0,
+            tx: 1,
+            amount: Decimal::from(100),
+        });
+        state.transact(Transaction::Dispute { client: 0, tx: 1 });
+        state.transact(Transaction::Chargeback { client: 0, tx: 1 });
+        assert!(state.locked());
+        state.transact(Transaction::Dispute { client: 0, tx: 0 });
+        assert_eq!(state.available(), Decimal::from(0));
+        assert!(state.locked()); // Still locked
     }
 }
